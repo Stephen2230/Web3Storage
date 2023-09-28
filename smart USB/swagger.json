@@ -1,0 +1,1970 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ChainSafe Storage API",
+    "description": "# Introduction\n\nChainSafe Storage is a suite of APIs and services that allows users to store and retrieve data from IPFS and Filecoin. \n\n## Overview\n\nAPI spec for ChainSafe Storage.\n\nYou can find out more about ChainSafe Storage at [https://storage.chainsafe.io](https://storage.chainsafe.io).\n\n## Buckets\n\nThe following API spec operates with the concept of **Buckets**. It is conceptually similar to features in other storage services that use the same term. A **Bucket** represents a file grouping mechanism that allows all the files belonging to the **Bucket**to be part of the metadata hierarchy. This is almost like a file system but without per-file access control and instead the access is controlled at a per-bucket level.\n\nAll of the files uploaded to IPFS are represented in a flat structure but it would not be sufficient to store them like this so the obvious idea would be to use the IPFS file system. However, such a file system is open to everybody and might reveal file or folder names and relative positioning, this could be something a user may never want to reveal. As a solution to this problem we store the file's hierarchy in a way that it won't be revealed to anybody on the public network, it will essentially be stored as an IPFS object.\n\nUnlike the flat structure of IPFS, our file system will preserve original file names, relative paths, content type, size and most importantly create a mapping between this metadata and the real IPFS CIDv0.\n\nAs mentioned earlier, we are not doing an access control check on files (because it would not be possible taking into account the nature of IPFS) but rather on the file system and Bucket. So only users with the proper access rights can manage data in a particular bucket and as a consequence make changes to the underlying file system and discover the mappings between metadata and CIDs of the uploaded files.\n\nIt would not be fair for us to restrict usage only to the internal file system, so it is also possible to create a **Bucket** that has an IPFS file system associated.\n\nSumming up everything that we just described, **Buckets** is a structure that holds:\n\n- Filesystem (files hierarchy) type: `chainsafe` or `ipfs` one\n\n- Lists or Owners, Writers, Readers\n\n- Size of all the data associated with it\n\nMore formal definition can be found in the spec below:\n\n# S3 Compatibility\n\nChainsafe Storage provides an S3 compatibility layer on top of distributed storage using IPFS. The Storage S3 API can easily integrate with your services using any available S3 client. \n\nIf you aren't currently a Chainsafe Storage user you can [create an account](https://app.storage.chainsafe.io/) today and get 20 GB of free storage.\n\n## Authentication\n\nChainsafe storage S3 compatible APIs only support v4 signatures for authentication. They do not currently support v2 signatures.\n\n<h3> Create Access Key ID and Secret Access Key </h3>\n  \n  - To acquire the keys you can sign into [ChainSafe Storage Web UI](https://app.storage.chainsafe.io)\n   \n  - Go to Settings section: <br>\n\n![storage ui settings](https://ipfs.chainsafe.io/ipfs/QmQrMf4PMdkm4ARSbDnf61MtJipsFGd9dJA9A9v34R8zEc) <br>\n\n  - Issue a key pair by clicking on 'Add S3 Key':\n\n![storage s3 keys](https://ipfs.chainsafe.io/ipfs/QmXBvUCqajbC5kkmVDy39gGJby5aoNJuG16MAPaXK3HWtP)\n   \n  > **NOTE**: Please make sure you save secret since it will **NOT** be showed again.\n\n### Create Access key through user API\n```\nPOST /api/v1/user/keys HTTP/1.1\nHost: https://api.chainsafe.io\nAuthorization: Bearer <AUTH_TOKEN>\nContent-Type: application/json\n{\n    \"type\" : \"storage\"\n}\n```\nResponse: (Content-Type: `application/json`)\n\n```\n{\n    \"id\": \"YQIGFGKQAHMJCTPEEHXJ\",\n    \"created_at\": \"2022-09-05T17:48:53.290381647Z\",\n    \"status\": \"active\",\n    \"type\": \"s3\",\n    \"secret\": \"zOdKnLzZQ9gzaCFTbxiomgZbMJi6I1pTIuJ81PEK\"\n}\n```\n\nYou can create `storage` or `s3` type of api keys.\n\n## SDKs\n\nChainsafe Storage S3 compatible APIs can be used with existing AWS SDKs. A guide on how to configure the AWS SDKs can be found:\n\n  - [AWS CLI](#section/S3-Compatibility/AWS-S3-CLI-Guide)\n  - [Go](#section/S3-Compatibility/Golang-Guide)\n\n## Supported Features\n\nThe Storage S3 compatible APIs returns response in same way AWS S3 does. Here are the features supported by Storage S3 compatible APIs\n\n  - Create Bucket\n  - Copy Object\n  - Delete Bucket \n  - Delete Object\n  - Get Object\n  - Head Bucket\n  - Head Object\n  - List Bucket\n  - List Objects V2\n  - Put Object\n\n## AWS S3 CLI Guide\n\nAWS S3 CLI is the easiest way to interact with the object storage. The AWS S3 CLI can be configured to take the advantage of the Chainsafe Storage S3 Compatible API.\n\nTo configure the AWS S3 CLI\n1. Create a new profile for Chainsafe storage in the AWS credentials file\n          $ vi ~/.aws/credentials\n          [storage]\n          aws_access_key_id = xxx\n          aws_secret_access_key = xxx\n\n2. Now interact with Chainsafe storage S3 compatible API using this above created storage profile and by providing custom endpoint(of chainsafe storage) to AWS S3 CLI\n          $ aws s3 mb s3://storage-s3-test --endpoint-url https://buckets.chainsafe.io --profile storage\n          make_bucket: storage-s3-test\n      \n          $ aws s3 ls --endpoint-url https://buckets.chainsafe.io --profile storage\n          2022-05-11 14:36:46 storage-s3-test\n\n## Golang Guide\n\nThis guide shows you how to integrate the S3 compatible storage layer using Go.\n\nBefore moving ahead please make sure you have the storage S3 keys mentioned above.\n\n> We will be using the minio S3 client for Go.\n#### Operations:\n\n1. <h4>Make Bucket</h4>\n\n   Lets create a bucket to start.\n\n\n      func main() {\n         serviceAddress := \"buckets.storage.io\"\n\n         // pass in your S3 key id and secret here.\n         accessKey, secKey := \"\", \"\"\n      \n         // initiate the minio client\n         client, err := minio.New(serviceAddress, &minio.Options{\n             Creds:  credentials.NewStaticV4(accessKey, secKey, \"\"),\n             Region: \"us-east-1\", // make sure to set it\n             Secure: true,\n         })\n         if err != nil {\n            log.Panic(err)\n         }\n\n         // bucket name to be created\n         bucketName := \"test-bucket\"\n         \n         // create bucket\n         ctx := context.Background()\n         err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})\n         if err != nil {\n            log.Panicf(\"error creating bucket \\\"%s\\\": %s\", bucketName, err.Error())\n         }\n      }\n\n\n2. <h4>List Buckets</h4>\n\n   We will now list bucket that we created in previous step.\n\n\n       func main() {\n            ctx := context.Background()\n   \n            // list buckets\n            buckets, err := client.ListBuckets(ctx)\n            if err != nil {\n                log.Panicf(\"error list buckets: %s\", err.Error())\n            }\n   \n            for _, b := range buckets {\n                log.Printf(\"i have \\\"%s\\\" bucket\\n\", b.Name)\n            }\n        }\n\n3. <h4> Upload Objects </h4>\n   \n   We will be uploading the objects to the bucket that we created above.\n\n\n      func main() {\n         ctx := context.Background()\n   \n         // bucket name that we created\n         bucketName := \"test-bucket\"\n   \n         // present working directory\n         pwd, err := os.Getwd()\n         if err != nil {\n             log.Panicf(\"can't get PWD: %s\", err)\n         }\n   \n         // document paths\n         myDocument1 := filepath.Join(pwd, \"document1.pdf\")\n   \n         // S3 path keys\n         document1Key := \"letter1/document.pdf\"\n   \n         // upload objects to the bucket\n         _, err = client.FPutObject(\n             ctx, bucketName, document1Key, myDocument1, minio.PutObjectOptions{\n                 DisableMultipart: true,\n             })\n         if err != nil {\n             log.Panicf(\"error putting object \\\"%s\\\" to bucket: %s\", myDocument1, err.Error())\n         }\n     }\n\n\n4. <h4> Get Object </h4>\n\n   We will be listing object that we added to the bucket in previous step.\n\n\n       func main() {\n         ctx := context.Background()\n\n         // bucket name that we created\n         bucketName := \"test-bucket\"\n\n         // S3 path key\n         document1Key := \"letter1/document.pdf\"\n\n         // get objects\n         _, err = client.GetObject(ctx, bucketName, document1Key, minio.GetObjectOptions{})\n         if err != nil {\n             log.Panicf(\"error getting the object itself: %s\", err.Error())\n         }\n       }\n\n5. <h4> List Objects </h4>\n\n   We will not list all the files in the bucket with different options.\n\n\n       func main() {\n         ctx := context.Background()\n   \n         // bucket name that we created\n         bucketName := \"test-bucket\"\n   \n         // list files by full paths\n         objListOptions := minio.ListObjectsOptions{Prefix: \"/\", Recursive: true}\n         for object := range client.ListObjects(ctx, bucketName, objListOptions) {\n             log.Printf(\"recursive on root object: %s\\n\", object.Key)\n         }\n      \n         // list root directories\n         objListOptions = minio.ListObjectsOptions{Prefix: \"/\", Recursive: false}\n         for object := range client.ListObjects(ctx, bucketName, objListOptions) {\n             log.Printf(\"non-recursive on root object: %s\\n\", object.Key)\n         }\n      \n         // list files in folder `/letter1`\n         objListOptions = minio.ListObjectsOptions{Prefix: \"/letter1\", Recursive: true}\n         for object := range client.ListObjects(ctx, bucketName, objListOptions) {\n             log.Printf(\"recursive on subfolder object: %s\\n\", object.Key)\n         }\n       }\n\n6. <h4>Check If Bucket Exist</h4>\n\n\n      func main() {\n         ctx := context.Background()\n\n         // bucket name that we created\n         bucketName := \"test-bucket\"\n\n         exists, err := client.BucketExists(ctx, bucketName)\n         if err != nil {\n           log.Panicf(\"error checking bucket existense \\\"%s\\\": %s\", bucketName, err.Error())\n         }\n         if !exists {\n           log.Panicf(\"bucket %s must exist\", bucketName)\n         }\n      }\n\n7. <h4>Remove Bucket</h4>\n\n   Remove the bucket that we created.\n\n\n      func main() {\n         ctx := context.Background()\n\n         // bucket name that we created\n         bucketName := \"test-bucket\"\n\n         err := client.RemoveBucket(ctx, bucketName)\n         if err != nil {\n           log.Panicf(\"error remeving bucket \\\"%s\\\": %s\", bucketName, err.Error())\n         }\n      }\n\n8. <h4> Delete Object </h4>\n\n\n       func main() {\n         ctx := context.Background()\n\n         // bucket name that we created\n         bucketName := \"test-bucket\"\n         document1Key := \"letter1/document.pdf\"\n         err = client.RemoveObject(ctx, bucketName, document1Key, minio.RemoveObjectOptions{})\n         if err != nil {\n           fmt.Println(\"error deleting the bucket object: \", err.Error())\n         }\n      }\n\n\n- You can use [this full example](https://pastebin.com/4Tt1C190).\n\n## Notes\n- We only support a limited set of S3 functionalities as of now but we intend to expand these functionalities in the coming months. If there is a specific functionality that you would like to request, please email colin@chainsafe.io. \n- You need to set `buckets.chainsafe.io:443` endpoint to your library of choice.\n- You need to set the region for s3 client library to `us-east-1`\n- The `accessKey` in the example above is **Key ID**, `secKey` is **Secret**.\n\n# NFT Metadata Storage\n\nNon-Fungible Tokens (NFTs) are unique, decentralized assets. One of the most compelling use cases for ChainSafe Storage is the storage of off-chain data associated with NFTs.\nWith Storage, users can rest easy knowing that the associated off-chain data for their NFTs will always be just as available and decentralized as the asset itself!\n\n## Prerequisites\n\n1. Signup on storage\n2. Create an API key\n3. Create a bucket\n\n### Signup on storage\n\nGo to https://app.storage.chainsafe.io if you haven’t created an account already.\n\n### Create an API key\n\n1. Go to settings and click on “Add API key”\n2. This will generate a key and a secret. Store your secret somewhere safe like you would back up a private key for a crypto wallet. It won’t be displayed again in the API Key List of the settings page.\n   ![Storage API Keys](https://ipfs.chainsafe.io/ipfs/QmQrMf4PMdkm4ARSbDnf61MtJipsFGd9dJA9A9v34R8zEc)\n3. All of the following steps we will use this secret as `<API_SECRET>`\n\n### Create a bucket\n\nTo store an object in Storage, you need to create a bucket. A bucket is a container for data.\nWhen creating a bucket, provide the following two params as a request body:\n\n1. name - The name of the bucket. Must be unique in case you have multiple buckets\n2. type - For buckets in Storage, this value is always `fps`\n\nNow let’s create a bucket with the following http request:\n\n```\nPOST /api/v1/buckets HTTP/1.1\nHost: https://api.chainsafe.io\nAuthorization: Bearer <API_SECRET>\nContent-Type: application/json\n{\n    \"name\": \"Test Bucket\",\n    \"type\": \"fps\",\n}\n```\n\nYou will get a json response with ID. We will refer to this ID as `BUCKET_ID` in the following steps.\n\n## Storing NFT data\n\nTo store NFT data you must provide the following fields:\n\n1. `BUCKET_ID` as path param\n2. `path` The path where to upload file data. You can provide a non-existing directory path. In that case directories according to the path will be created as well.\n3. `file` The file that you are uploading\n\nNow, let’s upload a file (`example_nft`) on the path `/my_data`\n\n```\nPOST /api/v1/bucket/<BUCKET_ID>/upload HTTP/1.1\nHost: https://api.chainsafe.io\nContent-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW\nAuthorization: Bearer <API_SECRET>\n\n----WebKitFormBoundary7MA4YWxkTrZu0gW\nContent-Disposition: form-data; name=\"file\"; filename=\"example_nft\"\nContent-Type: application/json\n\n(data)\n----WebKitFormBoundary7MA4YWxkTrZu0gW\nContent-Disposition: form-data; name=\"path\"\n\n/my_data\n----WebKitFormBoundary7MA4YWxkTrZu0gW\n```\n\n## Retrieving NFT data\n\nNFT data stored on ChainSafe Storage can be accessed from the storage download API or from any public IPFS network from any peer that has the content.\n\n### Retrieving via download endpoint\n\nSimply provide this path in the json request body\n\n```\nPOST /api/v1/bucket/<BUCKET_ID>/download HTTP/1.1\nHost: https://api.chainsafe.io\n\nAuthorization: Bearer <API_SECRET>\nContent-Type: application/json\n\n{\n    \"path\": \"/my_data/example_nft\"\n}\n```\n\n### Retrieving via ipfs gateway\n\nFirst, get the CID of the uploaded file. Then, perform the following request to get file details in json format:\n\n```\nPOST /api/v1/bucket/<BUCKET_ID>/file HTTP/1.1\nHost: https://api.chainsafe.io\nAuthorization: Bearer <API_SECRET>\nContent-Type: application/json\n\n{\n    \"path\": \"/my_data/example_nft\"\n}\n```\n\n**Response:**\n\n```\n{\n  \"content\": {\n    \"name\": \"file1.pdf\",\n    \"cid\": \"QmfPaBnVAR48UbcjF8crcX7TtJKiV8g3DJkTUsBB6pXb7e\",\n    \"size\": 10121,\n    ...\n  },\n  ...\n}\n```\n\nCopy the CID. Using the CID, data can be fetched directly from any public IPFS gateway. You can also use chainsafe’s IPFS gateway (https://ipfs.chainsafe.io)\n\nThe URL should be in this format:\n\n```\nhttps://{gateway URL}/ipfs/{content ID}/{optional path to resource}\n```\n\nIf we want to get our uploaded file through Chainsafe’s IPFS gateway, the URL will be\nhttps://ipfs.chainsafe.io/ipfs/QmfPaBnVAR48UbcjF8crcX7TtJKiV8g3DJkTUsBB6pXb7e\n\nAnd there you have it. You now have everything you need to upload, store and download your NFT’s off-chain data using ChainSafe Storage.\n\n# Authentication\n\n<!-- ReDoc-Inject: <security-definitions> -->",
+    "contact": {
+      "email": "info@chainsafe.io",
+      "name": "ChainSafe",
+      "url": "storage.chainsafe.io"
+    },
+    "version": "1.19.2"
+  },
+  "externalDocs": {
+    "description": "Find out more about ChainSafe",
+    "url": "https://doc.chainsafe.io"
+  },
+  "servers": [
+    {
+      "url": "https://api.chainsafe.io/api/v1",
+      "description": "ChainSafe Storage Endpoint"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Bucket Management",
+      "description": "This section contains API references for Bucket Management. This provides set of APIs to manage buckets and access control in ChainSafe Storage."
+    },
+    {
+      "name": "Object Management",
+      "description": "This section contains API references for Object Management. This provides set of APIs to upload, donwload and manage objects in the ChainSafe Storage Bucket."
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "API References",
+      "tags": [
+        "Bucket Management",
+        "Object Management"
+      ]
+    }
+  ],
+  "paths": {
+    "/buckets": {
+      "get": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "List buckets",
+        "description": "Returns a list of all buckets owned by the user",
+        "operationId": "listBuckets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "type",
+            "description": "filter on the type of the bucket",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/BucketTypeList"
+            }
+          },
+          {
+            "name": "public_access",
+            "description": "filter on the access type of the bucket",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/BucketPublicTypeList"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Operation,",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketsListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing authorization token",
+            "content": {}
+          },
+          "404": {
+            "description": "no buckets was found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Create bucket",
+        "description": "Creates a new bucket. User creating the bucket becomes the owner of it.",
+        "operationId": "createBucket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "information to update pin",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBucketRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bucket"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Data that was provider for modification is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid authentication token",
+            "content": {}
+          },
+          "404": {
+            "description": "Bucket is not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/buckets/{bucket_id}": {
+      "get": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Get bucket",
+        "description": "Retrieves a bucket information owned by the user.",
+        "operationId": "getBucket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Operation,",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bucket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing authorization token",
+            "content": {}
+          },
+          "404": {
+            "description": "bucket was not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Update bucket",
+        "description": "Update bucket details.",
+        "operationId": "updateBucket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Updated Bucket details. Only Name and Access control list can be for the bucket can be updated",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBucketRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {}
+          },
+          "401": {
+            "description": "Invalid authentication token",
+            "content": {}
+          },
+          "404": {
+            "description": "Bucket is not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Delete bucket",
+        "description": "Deletes the bucket including all objects in the bucket.",
+        "operationId": "removeBucket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Operation,"
+          },
+          "401": {
+            "description": "Invalid or missing authorization token",
+            "content": {}
+          },
+          "404": {
+            "description": "bucket was not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/buckets/summary": {
+      "get": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Summary",
+        "description": "Retrieves the bucket summary of the users storage account.",
+        "operationId": "bucketsSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Operation,",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketSummaryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No buckets found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/users": {
+      "get": {
+        "tags": [
+          "Bucket Management"
+        ],
+        "summary": "Bucket users",
+        "description": "returns buckets users with additional information about the user",
+        "operationId": "getBucketUsers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketUsersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "File of directory name in conflict with existing structure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Drive Service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/check-upload": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Pre-upload Check",
+        "description": "The API runs pre-upload checks based on the files details provided and return error that could be encountered during upload.",
+        "operationId": "checkUploadBucketObjects",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "files details containing paths",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesPreUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesPreUploadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store or File do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/upload": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Upload Objects",
+        "description": "uploads one or more files to the bucket. The user must have write access to the bucket.",
+        "operationId": "uploadBucketObjects",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "attributes of file to upload",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "description": "array of files that needs to be uploaded",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "path": {
+                    "description": "path in bucket's file system where uploaded objects will be placed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesUploadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "file of directory name in conflict with existing structure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Update",
+        "description": "Updates a one or more files on the bucket. The user must have write access to the bucket.",
+        "operationId": "update",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "in": "path",
+            "description": "bucket identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "attributes of file to update",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "description": "array of files that needs to be updated",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "path": {
+                    "description": "path in user's file system where uploaded objects will be placed",
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "files",
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesUploadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File does not exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "file of directory name in conflict with existing structure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/download": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Download Object",
+        "description": "Retrieve content of file stored in a bucket. The user must have read access to the bucket.",
+        "operationId": "getBucketObjectContent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "file path",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "File Store do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing Authentication token",
+            "content": {}
+          },
+          "404": {
+            "description": "File with such CID does not exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/mv": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Move Objects",
+        "description": "Move or rename files in the bucket. The user must have write access to the bucket.",
+        "operationId": "moveBucketObjects",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesMvRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {}
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store or File Name do not exists for the provided user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "file of directory name in conflict with existing structure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/file": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Object Info",
+        "description": "Retrieves all information available on a file",
+        "operationId": "getBucketObjectInfo",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "file path",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketFileFullInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "File Store or File itself do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/rm": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Delete Objects",
+        "description": "removes a files or directories from the bucket",
+        "operationId": "removeBucketObject",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "array of object paths",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesRmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {}
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store or File do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/ls": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "List Objects",
+        "description": "Retrieve child list for provided directory path",
+        "operationId": "getBucketObjectChildrenList",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "file path",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesLsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bucket/{bucket_id}/mkdir": {
+      "post": {
+        "tags": [
+          "Object Management"
+        ],
+        "summary": "Create Folder",
+        "description": "Creates a new folder on the bucket.",
+        "operationId": "addBucketDirectory",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bucket_id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/BucketID"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "directory path",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilesPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileContentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing apikey or secretkey",
+            "content": {}
+          },
+          "404": {
+            "description": "File Store do not exists for the provided user identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "file of directory name in conflict with existing structure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "drive service is not inilialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "description": " The token can be issued via 'Settings' menu in Storage WebIU and used as a standard bearer token:\n- `Authorization: Bearer <access-token>` ",
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "BucketType": {
+        "type": "string",
+        "description": "type of bucket. Use fps for ChainSafe Storage bucket",
+        "enum": [
+          "csf",
+          "fps",
+          "trash",
+          "pinning",
+          "share",
+          "nft"
+        ]
+      },
+      "BucketTypeList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/BucketType"
+        }
+      },
+      "BucketPublicType": {
+        "type": "string",
+        "description": "this parameter defines public access type of the bucket. ",
+        "enum": [
+          "read",
+          "write"
+        ]
+      },
+      "BucketPublicTypeList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/BucketPublicType"
+        }
+      },
+      "ErrorMessage": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "description": "The error object",
+            "type": "object",
+            "properties": {
+              "code": {
+                "description": "Http error code",
+                "type": "integer",
+                "example": 400
+              },
+              "message": {
+                "description": "Error message",
+                "type": "string",
+                "example": "example error message"
+              },
+              "details": {
+                "description": "Holds error details in case of validation errors or multiple errors",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "description": "Error type or source",
+                      "type": "string",
+                      "example": "example type"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string",
+                      "example": "Example message"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "BucketUser": {
+        "type": "object",
+        "description": "object that represents bucket user entry",
+        "required": [
+          "uuid",
+          "encryption_key"
+        ],
+        "properties": {
+          "uuid": {
+            "description": "unique user identifier",
+            "type": "string"
+          },
+          "encryption_key": {
+            "description": "data encryption key for the user",
+            "type": "string"
+          }
+        }
+      },
+      "FileSystemType": {
+        "description": "Filesystem to be used for the bucket.",
+        "type": "string",
+        "nullable": true,
+        "enum": [
+          "chainsafe",
+          "ipfs",
+          null
+        ]
+      },
+      "Bucket": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "owners",
+          "writers",
+          "readers",
+          "size",
+          "file_system_type",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "description": "bucket identifier",
+            "type": "string"
+          },
+          "name": {
+            "description": "name of the bucket",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/BucketType"
+          },
+          "owners": {
+            "description": "list of user identifiers that owns this bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "writers": {
+            "description": "list of user identifiers that has write permission to the bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "readers": {
+            "description": "list of user identifiers that has read permission to the bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "size": {
+            "description": "the size of bucket",
+            "type": "number"
+          },
+          "public": {
+            "$ref": "#/components/schemas/BucketPublicType"
+          },
+          "file_system_type": {
+            "$ref": "#/components/schemas/FileSystemType"
+          },
+          "status": {
+            "description": "status of the bucket",
+            "type": "string",
+            "enum": [
+              "created",
+              "deleting"
+            ]
+          }
+        }
+      },
+      "BucketsListResponse": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Bucket"
+        }
+      },
+      "CreateBucketRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "description": "name of the bucket",
+            "type": "string"
+          },
+          "type": {
+            "decription": "use type \"fps\" for storage buckets",
+            "$ref": "#/components/schemas/BucketType"
+          },
+          "encryption_key": {
+            "description": "User's symmetric encryption phrase encrypted with user's tKey public key (required for share bucket)",
+            "type": "string"
+          },
+          "file_system_type": {
+            "$ref": "#/components/schemas/FileSystemType"
+          },
+          "writers": {
+            "description": "list of id of users",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "readers": {
+            "description": "list of id of users",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "public": {
+            "$ref": "#/components/schemas/BucketPublicType"
+          }
+        }
+      },
+      "BucketID": {
+        "type": "string",
+        "description": "unique bucket identifier"
+      },
+      "UpdateBucketRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "bucket name",
+            "type": "string"
+          },
+          "writers": {
+            "description": "list of id of users",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "readers": {
+            "description": "list of id of users",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BucketUser"
+            }
+          },
+          "public": {
+            "$ref": "#/components/schemas/BucketPublicType"
+          }
+        }
+      },
+      "BucketSummaryResponse": {
+        "description": "a summary of the users buckets",
+        "type": "object",
+        "required": [
+          "total_buckets",
+          "available_storage",
+          "total_storage",
+          "used_storage"
+        ],
+        "properties": {
+          "total_buckets": {
+            "description": "Total number for buckets",
+            "type": "number"
+          },
+          "available_storage": {
+            "description": "Total available storage",
+            "type": "number"
+          },
+          "total_storage": {
+            "description": "Total storage allocated to the user",
+            "type": "number"
+          },
+          "used_storage": {
+            "description": "Total used storage"
+          }
+        }
+      },
+      "LookupUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "username",
+          "identity_pubkey",
+          "public_address"
+        ],
+        "properties": {
+          "id": {
+            "description": "User identifier",
+            "type": "string"
+          },
+          "uuid": {
+            "description": "Unique user Identifier (UUID)",
+            "type": "string"
+          },
+          "username": {
+            "description": "Unique user name for",
+            "type": "string",
+            "example": "not-greg123"
+          },
+          "identity_pubkey": {
+            "description": "A 68 digit long Tkey public address",
+            "type": "string",
+            "example": "0x0000000096216849C49358B10257CB55B28EA603C8000000000000000000C0FFEE"
+          },
+          "public_address": {
+            "description": "A 42 digit long web3 public address",
+            "type": "string",
+            "example": "0X96216849C49358B10257CB55B28EA603C8C0FFEE"
+          }
+        }
+      },
+      "BucketUsersResponse": {
+        "type": "object",
+        "required": [
+          "owners",
+          "writers",
+          "readers"
+        ],
+        "properties": {
+          "owners": {
+            "description": "users who own the bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupUser"
+            }
+          },
+          "writers": {
+            "description": "user with write access to the bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupUser"
+            }
+          },
+          "readers": {
+            "description": "user with read access to the bucket",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupUser"
+            }
+          }
+        }
+      },
+      "PreUploadRequestItem": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "description": "full path of the file to be uploaded",
+            "type": "string",
+            "example": "home/chainsafe/abc.txt"
+          }
+        }
+      },
+      "FilesPreUploadRequest": {
+        "type": "object",
+        "required": [
+          "is_update",
+          "files_meta"
+        ],
+        "properties": {
+          "is_update": {
+            "description": "Perform pre-check for the update object request",
+            "type": "boolean",
+            "example": false
+          },
+          "files_meta": {
+            "description": "Array of full file paths to be uploaded.The endpoint checks for any file-system conflicts",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreUploadRequestItem"
+            }
+          }
+        }
+      },
+      "PreUploadResponseDetail": {
+        "type": "object",
+        "required": [
+          "path",
+          "status"
+        ],
+        "properties": {
+          "path": {
+            "description": "path of the uploading file",
+            "type": "string",
+            "example": "home/chainsafe/abc.txt"
+          },
+          "cid": {
+            "description": "cid of the file",
+            "type": "string"
+          },
+          "type": {
+            "description": "type of the file",
+            "type": "string",
+            "example": "application/json"
+          },
+          "size": {
+            "description": "size of the file",
+            "type": "integer"
+          },
+          "status": {
+            "description": "status of the uploading file",
+            "type": "string",
+            "example": "failed",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "error_code": {
+            "description": "http error code for the file",
+            "type": "integer",
+            "example": 409
+          },
+          "message": {
+            "description": "error message in case of status failed",
+            "type": "string",
+            "example": "entry already exists, cannot add"
+          },
+          "suggestion": {
+            "description": "suggested path for conflict error",
+            "type": "string",
+            "example": "home/chainsafe/abc(1).txt"
+          }
+        }
+      },
+      "FilesPreUploadResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "files_details"
+        ],
+        "properties": {
+          "status": {
+            "description": "status of the upload",
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "files_details": {
+            "description": "array of files",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreUploadResponseDetail"
+            }
+          }
+        }
+      },
+      "FilesUploadResponse": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "description": "path where all uploaded files are placed",
+            "type": "string"
+          },
+          "files_details": {
+            "description": "array of files",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreUploadResponseDetail"
+            }
+          }
+        }
+      },
+      "FilesPathRequest": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "description": "path to the file object",
+            "type": "string"
+          }
+        }
+      },
+      "FilesMvRequest": {
+        "type": "object",
+        "required": [
+          "paths",
+          "new_path"
+        ],
+        "properties": {
+          "paths": {
+            "description": "list of paths to be moved",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "new_path": {
+            "description": "desired new path file object needs to be moved",
+            "type": "string"
+          },
+          "destination": {
+            "description": "bucket Identifier of the destination bucket",
+            "$ref": "#/components/schemas/BucketID"
+          }
+        }
+      },
+      "FileContentResponse": {
+        "description": "service specific Files object info",
+        "type": "object",
+        "required": [
+          "name",
+          "cid",
+          "size",
+          "content_type",
+          "version",
+          "created_at"
+        ],
+        "properties": {
+          "name": {
+            "description": "File or Folder object name",
+            "type": "string",
+            "example": "file1.pdf"
+          },
+          "cid": {
+            "description": "File or Folder content identifier",
+            "type": "string",
+            "example": "cid1"
+          },
+          "size": {
+            "description": "size of the file",
+            "type": "integer",
+            "format": "bigint"
+          },
+          "content_type": {
+            "description": "Content type",
+            "type": "string",
+            "example": "pdf"
+          },
+          "version": {
+            "description": "File storage type version; only files version has some meaning, all folder always have version 0",
+            "type": "number",
+            "example": 1
+          },
+          "created_at": {
+            "description": "creation date",
+            "type": "integer"
+          }
+        }
+      },
+      "BucketPersistentResponse": {
+        "description": "information about storage options for the Files object in question",
+        "type": "object",
+        "properties": {
+          "uploaded": {
+            "description": "time what file was uploaded",
+            "type": "integer",
+            "format": "bigint"
+          },
+          "saved_time": {
+            "description": "time what file land on storage layer after all deals",
+            "type": "integer",
+            "format": "bigint"
+          },
+          "stored_size": {
+            "description": "size of stored file in bytes",
+            "type": "integer",
+            "format": "bigint"
+          },
+          "stored_cid": {
+            "description": "cid of the sored file in ipfs, usaully the same as cid in content section",
+            "type": "string"
+          },
+          "filecoin": {
+            "description": "File Coin storage details",
+            "type": "object",
+            "properties": {
+              "cid": {
+                "description": "cid of the sotred onject in File Coin network",
+                "type": "string"
+              },
+              "size": {
+                "description": "size of sored data in File Coin network, usually quanted by minimum stored size",
+                "type": "integer",
+                "format": "bigint"
+              },
+              "proposals": {
+                "description": "info about File Coin proposals",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "cid": {
+                      "description": "cid of the proposal data",
+                      "type": "string"
+                    },
+                    "duration": {
+                      "description": "deal duration in seonds",
+                      "type": "integer",
+                      "format": "bigint"
+                    },
+                    "activation_epoch": {
+                      "description": "activation epoch number",
+                      "type": "integer",
+                      "format": "bigint"
+                    },
+                    "start_epoch": {
+                      "description": "start epoch number",
+                      "type": "integer",
+                      "format": "bigint"
+                    },
+                    "miner": {
+                      "description": "responsible miner",
+                      "type": "string"
+                    },
+                    "epoch_price": {
+                      "description": "epoch price",
+                      "type": "integer",
+                      "format": "bigint"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "BucketFileFullInfoResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/FileContentResponse"
+          },
+          "persistent": {
+            "$ref": "#/components/schemas/BucketPersistentResponse"
+          },
+          "messages": {
+            "description": "list of messages containig warnings and errors about File Coin deals that filed",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FilesRmRequest": {
+        "type": "object",
+        "required": [
+          "paths"
+        ],
+        "properties": {
+          "paths": {
+            "description": "list of paths to the file objects that needs to be deleted",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FilesLsResponse": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/FileContentResponse"
+        }
+      }
+    }
+  }
+}
